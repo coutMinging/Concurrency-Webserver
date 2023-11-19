@@ -173,13 +173,13 @@ char *http_get_response_message(int status_code) {
         return "Internal Server Error";
     }
 }
-
+/*
 void parse_client_request(int fd) {
     char *read_buffer = malloc(LIBHTTP_REQUEST_MAX_SIZE + 1);
     if (!read_buffer) http_fatal_error("Malloc failed");
 
     int bytes_read = read(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE);
-    read_buffer[bytes_read] = '\0'; /* Always null-terminate. */
+    read_buffer[bytes_read] = '\0'; Always null-terminate. 
     printf("read buffer %s\n\n", read_buffer);
 
     int delay = -1;
@@ -230,6 +230,8 @@ void parse_client_request(int fd) {
     free(read_buffer);
     return;
 }
+*/
+
 
 
 
