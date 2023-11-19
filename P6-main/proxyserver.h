@@ -39,6 +39,7 @@ struct http_request {
     char *method;
     char *path;
     char *delay;
+    int priority;
 };
 
 /*
@@ -128,6 +129,8 @@ struct http_request *http_request_parse(int fd) {
         request->path = malloc(read_size + 1);
         memcpy(request->path, read_start, read_size);
         request->path[read_size] = '\0';
+        char *copyPath = malloc(read_size + 1);
+        memcpy(copyPath, read_start, read_size);
         printf("parsed path %s\n", request->path);
 
         /* Read in HTTP version and rest of request line: ".*" */
@@ -138,6 +141,17 @@ struct http_request *http_request_parse(int fd) {
         read_end++;
 
         free(read_buffer);
+        char *token = strtok(copyPath, "/");
+        while(token != NULL)
+        {
+            int priority = atoi(token);
+            if(priority >= 1 && priority <= 10)
+            {
+                request -> priority = priority;
+                return request;
+            }
+            token = strtok(NULL, "/");
+        }
         return request;
     } while (0);
 
@@ -173,13 +187,13 @@ char *http_get_response_message(int status_code) {
         return "Internal Server Error";
     }
 }
-/*
+
 void parse_client_request(int fd) {
     char *read_buffer = malloc(LIBHTTP_REQUEST_MAX_SIZE + 1);
     if (!read_buffer) http_fatal_error("Malloc failed");
 
     int bytes_read = read(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE);
-    read_buffer[bytes_read] = '\0'; Always null-terminate. 
+    read_buffer[bytes_read] = '\0'; /* Always null-terminate. */
     printf("read buffer %s\n\n", read_buffer);
 
     int delay = -1;
@@ -230,8 +244,6 @@ void parse_client_request(int fd) {
     free(read_buffer);
     return;
 }
-*/
-
 
 
 
