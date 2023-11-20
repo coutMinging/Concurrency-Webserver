@@ -7,28 +7,27 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-typedef struct{
-    struct http_request *q;
-    int size;
-    int capacity;
-    pthread_mutex_t mutex ;
-    pthread_cond_t cond ;
-
-
-}safequeue;
-
-void safequeue_init(int capacity, safequeue *sq)
+//define the node structure
+typedef struct node
 {
-    sq->q = (struct http_request*)malloc(capacity * sizeof(struct http_request));
-    if(sq->q == NULL){
-        printf("malloc failed");
-        exit(1);
-    }
-    sq->size = 0;
-    sq->capacity = capacity;
-    pthread_mutex_init(&(sq->mutex), NULL);
-    pthread_cond_init(&(sq->cond), NULL);
+    int priority;           // the priority of every node
+    struct node *nextnode;  // point to the next node
+    void *data;             // the data stored in each node
+}node_t;
 
-}
+//define the queue structure
+typedef struct safequeue
+{
+    node_t *head;
+    node_t *tail;
+    int size;
+    pthread_mutex_t mutex;
+    pthread_cond_t full;
+    pthread_cond_t empty;
+
+}safequeue_t;
+
+extern void queue_init(safequeue_t *sq);
+extern void enqueue(safequeue_t *sq, void *data, int priority);
 
 #endif
