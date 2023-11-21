@@ -1,3 +1,4 @@
+
 #ifndef PROXYSERVER_H
 #define PROXYSERVER_H
 
@@ -11,6 +12,7 @@ typedef enum scode {
 } status_code_t;
 
 #define GETJOBCMD "/GetJob"
+#define RESPONSE_BUFSIZE 10000
 
 /*
  * A simple HTTP library.
@@ -39,7 +41,11 @@ struct http_request {
     char *method;
     char *path;
     char *delay;
-    int priority;
+};
+
+struct parsed_http_request {
+    char *path;
+    int delay;
 };
 
 /*
@@ -129,8 +135,6 @@ struct http_request *http_request_parse(int fd) {
         request->path = malloc(read_size + 1);
         memcpy(request->path, read_start, read_size);
         request->path[read_size] = '\0';
-        char *copyPath = malloc(read_size + 1);
-        memcpy(copyPath, read_start, read_size);
         printf("parsed path %s\n", request->path);
 
         /* Read in HTTP version and rest of request line: ".*" */
@@ -141,17 +145,6 @@ struct http_request *http_request_parse(int fd) {
         read_end++;
 
         free(read_buffer);
-        char *token = strtok(copyPath, "/");
-        while(token != NULL)
-        {
-            int priority = atoi(token);
-            if(priority >= 1 && priority <= 10)
-            {
-                request -> priority = priority;
-                return request;
-            }
-            token = strtok(NULL, "/");
-        }
         return request;
     } while (0);
 
@@ -188,6 +181,59 @@ char *http_get_response_message(int status_code) {
     }
 }
 
+struct parsed_http_request *parse_client_request(int fd) {
+    char *read_buffer = malloc(RESPONSE_BUFSIZE);
+    if (!read_buffer) http_fatal_error("Malloc failed");
+
+    int bytes_read = recv(fd, read_buffer, RESPONSE_BUFSIZE - 1, MSG_PEEK);
+    read_buffer[bytes_read] = '\0'; /* Always null-terminate. */
+    printf("read buffer %s\n\n", read_buffer);
+
+    int delay = -1;
+    char *path = NULL;
+
+    int is_first = 1;
+    size_t size;
+
+    char *token = strtok(read_buffer, "\r\n");
+    while (token != NULL) {
+        size = strlen(token);
+        if (is_first) {
+            is_first = 0;
+            // get path
+            char *s1 = strstr(token, " ");
+            char *s2 = strstr(s1 + 1, " ");
+            size = s2 - s1 - 1;
+            path = strndup(s1 + 1, size);
+
+            if (strcmp(GETJOBCMD, path) == 0) {
+                break;
+            } else {
+                // skip priority
+            }
+        } else {
+            char *value = strstr(token, ":");
+            if (value) {
+                size = value - token - 1;  // -1 for space
+                if (strncmp("Delay", token, size) == 0) {
+                    delay = atoi(value + 2);  // skip `: `
+                }
+            }
+        }
+        token = strtok(NULL, "\r\n");
+    }
+
+    if (delay < 0) delay = 0;
+
+    struct parsed_http_request *req = malloc(sizeof(struct parsed_http_request));
+    req->path = path;
+    req->delay = delay;
+
+    free(read_buffer);
+    return req;
+}
+
 
 
 #endif
+

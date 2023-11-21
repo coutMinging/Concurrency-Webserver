@@ -1,109 +1,119 @@
-#include "safequeue.h"
-#include <stdio.h>
+#include <pthread.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include "safequeue.h"
 
-//initialize the safe queue
-void queue_init(safequeue_t *sq, int full_size)
-{
-    sq->head = NULL;
-    sq->tail = NULL;
-    sq->size = 0;
-    sq->full_size = full_size;
-    pthread_mutex_init(&sq->mutex, NULL);
-    pthread_cond_init(&sq->empty, NULL);
-    pthread_cond_init(&sq->full, NULL);
-
-}
-
-// add new node to the link list depend on the priority
-void enqueue(safequeue_t *sq, void *data, int priority)
-{
-    pthread_mutex_lock(&sq->mutex);
-    while(sq->size == sq->full_size)
-    {
-        pthread_cond_wait(&sq->empty, &sq->mutex);
-    }
-    node_t *new_node = (node_t*)malloc(sizeof(node_t));
-    if(new_node == NULL){
-        printf("malloc failed\n");
-        exit(1);
-    }
-    new_node->data = data;
-    new_node->priority = priority;
-    new_node->nextnode = NULL;
-    //insert the node based on the priority
-    // when the linkedlist is empty
-    if(sq->head == NULL || sq->head->priority>priority)
-    {
-        new_node->nextnode = sq->head;
-        sq->head = new_node;
-    }else{
-        //if the linked list is not empty
-        node_t *current = sq->head;
-        while(current->nextnode != NULL && current->nextnode->priority<=priority)
-        {
-            current = current->nextnode;
-        }
-        new_node->nextnode = current->nextnode;
-        current->nextnode = new_node;
-    }
-    if(sq->tail == NULL || sq->tail->nextnode == new_node)
-    {
-        sq->tail = new_node;
-    }
-
-    sq->size ++;
-    pthread_cond_signal(&sq->full);
-
-    pthread_mutex_unlock(&sq->mutex);
-
-}
-// get the data with highest priority
-void *dequeue(safequeue_t *sq)
-{
-    //get the lock, ensure the thread safe
-    pthread_mutex_lock(&sq->mutex);
+safequeueItem_t **priority_queue;
+int size = 0; //size of this priority queue
+int max_size; //max size of the priority queue
+pthread_mutex_t mutex;
+pthread_cond_t cond;
+//create a priority queue with given max size and assign it to max_size
+void create_queue(int full_size) {
+    max_size=full_size;
+    priority_queue = malloc(full_size * sizeof(safequeueItem_t*));
     
-    //using condition variable check, if empty, then wait
-    while(sq->size == 0)
-    {
-        pthread_cond_wait(&sq->full, &sq->mutex);
-    }
-
-    //get the data stored in the highest priority node
-    node_t *highest_priority_node = sq->head;
-    void *data = sq->head->data;
-    //delete the head node
-    sq->head = sq->head->nextnode;
-    //check if the link list is empty after remove the node
-    //if the link list is empty then update the tail
-    if(sq->head == NULL)
-    {
-        sq->tail == NULL;
-    }
-    free(highest_priority_node);
-    sq->size--;
-    //when the link list is not full, the can wake up the enqueue
-    //to add more data into it
-    pthread_cond_signal(&sq->empty);
-
-    pthread_mutex_unlock(&sq->mutex);
-    return data;
-
-
-
+    pthread_cond_init(&cond, NULL);
+    pthread_mutex_init(&mutex, NULL);
+    
 }
 
-//make the linked list NULL
-void remove_all_node(safequeue_t *sq)
-{
-    while(sq->head!=NULL)
-    {
-        node_t *current = sq->head;
-        sq->head = sq->head->nextnode;
-        free(current);
+int add_work(int fd, int priority, char *path, int delay) {
+    safequeueItem_t *new_item = malloc(sizeof(safequeueItem_t*));
+
+    new_item->client_fd = fd;
+    new_item->priority = priority;
+    new_item->path = path;
+    new_item->delay = delay;
+    //add lock
+    pthread_mutex_lock(&mutex);
+
+    if (size >= max_size) {
+        return -1;
     }
 
+    priority_queue[size] = new_item;
+    size++;
+
+    pthread_cond_signal(&cond); // Signal
+    
+    pthread_mutex_unlock(&mutex);//unlock
+
+    return 0;
+}
+//get the index of the highest priority item in the priority queue(helpper func)
+int get_highest_priority() {
+    int highest_p = -1;
+    int index = -1;
+
+    for (int i = 0; i < size; i++) {
+        if (priority_queue[i]->priority > highest_p) {
+            highest_p = priority_queue[i]->priority;
+            index = i;
+        }
+    }
+
+    return index;
+}
+//get the job with highest priority
+safequeueItem_t *get_work() {
+    pthread_mutex_lock(&mutex);
+
+    while (size <= 0) {
+        pthread_cond_wait(&cond, &mutex); // Wait for work
+    }
+
+    int rem_index = get_highest_priority();
+    safequeueItem_t *item = priority_queue[rem_index];
+
+    for (int i = rem_index; i < size - 1; i++) {
+        priority_queue[i] = priority_queue[i + 1];
+    }
+
+    size--;
+
+    pthread_mutex_unlock(&mutex);
+
+    //return the removed item
+    return item;
 }
 
+safequeueItem_t *get_work_nonblocking() {
+    pthread_mutex_lock(&mutex);
 
+    //if no element just return will not wait since non blocking
+    if (size <= 0) {
+        pthread_mutex_unlock(&mutex);
+        return (safequeueItem_t*)0;
+    }
+
+    int rem_index = get_highest_priority();
+
+    safequeueItem_t *item = priority_queue[rem_index];
+
+    for (int i = rem_index; i < size - 1; i++) {
+        priority_queue[i] = priority_queue[i + 1];
+    }
+    size--;
+
+    pthread_mutex_unlock(&mutex);
+
+    return item;
+}
+
+//Remember to free resources and destroy mutex and condition variable
+void destroy_queue() {
+     pthread_mutex_lock(&mutex);
+
+     for (int i = 0; i < size; i++) {
+         free(priority_queue[i]->path);
+         free(priority_queue[i]);
+     }
+
+     free(priority_queue);
+     size = 0;
+
+     pthread_mutex_unlock(&mutex);
+     pthread_mutex_destroy(&mutex);
+     pthread_cond_destroy(&cond);
+ }
