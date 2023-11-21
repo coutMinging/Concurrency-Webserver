@@ -208,9 +208,7 @@ struct parsed_http_request *parse_client_request(int fd) {
 
             if (strcmp(GETJOBCMD, path) == 0) {
                 break;
-            } else {
-                // skip priority
-            }
+            } 
         } else {
             char *value = strstr(token, ":");
             if (value) {
