@@ -18,10 +18,43 @@ void create_queue(int full_size) {
     
 }
 
-int add_work(int fd, int priority, char *path, int delay) {
+//Remember to free resources and destroy mutex and condition variable
+void dequeue() {
+     pthread_mutex_lock(&mutex);
+
+     for (int i = 0; i < size; i++) {
+         free(priority_queue[i]->path);
+         free(priority_queue[i]);
+     }
+
+     free(priority_queue);
+     size = 0;
+
+     pthread_mutex_unlock(&mutex);
+     pthread_mutex_destroy(&mutex);
+     pthread_cond_destroy(&cond);
+ }
+
+ //get the index of the highest priority item in the priority queue(helpper func)
+int get_highest_priority() {
+    int highest_priority= -1;
+    int index = -1;
+
+    for (int i = 0; i < size; i++) {
+        if (priority_queue[i]->priority > highest_priority) {
+            highest_priority= priority_queue[i]->priority;
+            index = i;
+        }
+    }
+
+    return index;
+}
+
+
+int add_work(int priority, char *path, int delay, int client_fd){
     safequeueItem_t *new_item = malloc(sizeof(safequeueItem_t*));
 
-    new_item->client_fd = fd;
+    new_item->client_fd = client_fd;
     new_item->priority = priority;
     new_item->path = path;
     new_item->delay = delay;
@@ -41,20 +74,7 @@ int add_work(int fd, int priority, char *path, int delay) {
 
     return 0;
 }
-//get the index of the highest priority item in the priority queue(helpper func)
-int get_highest_priority() {
-    int highest_p = -1;
-    int index = -1;
 
-    for (int i = 0; i < size; i++) {
-        if (priority_queue[i]->priority > highest_p) {
-            highest_p = priority_queue[i]->priority;
-            index = i;
-        }
-    }
-
-    return index;
-}
 //get the job with highest priority
 safequeueItem_t *get_work() {
     pthread_mutex_lock(&mutex);
@@ -101,19 +121,3 @@ safequeueItem_t *get_work_nonblocking() {
     return item;
 }
 
-//Remember to free resources and destroy mutex and condition variable
-void destroy_queue() {
-     pthread_mutex_lock(&mutex);
-
-     for (int i = 0; i < size; i++) {
-         free(priority_queue[i]->path);
-         free(priority_queue[i]);
-     }
-
-     free(priority_queue);
-     size = 0;
-
-     pthread_mutex_unlock(&mutex);
-     pthread_mutex_destroy(&mutex);
-     pthread_cond_destroy(&cond);
- }

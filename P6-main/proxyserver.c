@@ -194,7 +194,7 @@ void start_listener(listener_info *d) {
             }
 
             // if get priority successful go add_work
-            if (add_work(client_fd, priority, request->path, request->delay) < 0) {
+            if (add_work(priority, request->path, request->delay, client_fd) < 0) {
                 send_error_response(client_fd, QUEUE_FULL, "Queue is full");
                 shutdown(client_fd, SHUT_WR);
                 close(client_fd);
@@ -304,7 +304,7 @@ void signal_callback_handler(int signum) {
         if (close(server_fds[i]) < 0) perror("Failed to close server_fd (ignoring)\n");
     }
     free(listener_ports);
-    destroy_queue();
+    dequeue();
     exit(0);
 }
 
