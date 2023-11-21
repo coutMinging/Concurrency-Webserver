@@ -15,12 +15,7 @@
 #include <unistd.h>
 
 #include "proxyserver.h"
-
-
-/*
- * Constants
- */
-#define RESPONSE_BUFSIZE 10000
+#include "safequeue.h"
 
 /*
  * Global configuration variables.
@@ -73,12 +68,11 @@ void serve_request(int client_fd) {
         return;
     }
 
-    // successfully connected to the file server
-    char *buffer = (char *)malloc(RESPONSE_BUFSIZE * sizeof(char));
+    char *buffer = (char*)malloc(RESPONSE_BUFSIZE * sizeof(char));
 
-    // forward the client request to the fileserver
     int bytes_read = read(client_fd, buffer, RESPONSE_BUFSIZE);
     int ret = http_send_data(fileserver_fd, buffer, bytes_read);
+
     if (ret < 0) {
         printf("Failed to send request to the file server\n");
         send_error_response(client_fd, BAD_GATEWAY, "Bad Gateway");
@@ -104,14 +98,16 @@ void serve_request(int client_fd) {
     free(buffer);
 }
 
+// struct to store listener port
+typedef struct {
+    int *server_fd;
+    int listener_port; //store listener_ports later
+} listener_info;
 
-int server_fd;
-/*
- * opens a TCP stream socket on all interfaces with port number PORTNO. Saves
- * the fd number of the server socket in *socket_number. For each accepted
- * connection, calls request_handler with the accepted fd number.
- */
-void serve_forever(int *server_fd) {
+// start the listener thread helper func
+void start_listener(listener_info *d) {
+    int *server_fd=d->server_fd;
+    int listener_port=d->listener_port;
 
     // create a socket to listen
     *server_fd = socket(PF_INET, SOCK_STREAM, 0);
@@ -128,14 +124,13 @@ void serve_forever(int *server_fd) {
         exit(errno);
     }
 
-
-    int proxy_port = listener_ports[0];
     // create the full address of this proxyserver
     struct sockaddr_in proxy_address;
     memset(&proxy_address, 0, sizeof(proxy_address));
     proxy_address.sin_family = AF_INET;
     proxy_address.sin_addr.s_addr = INADDR_ANY;
-    proxy_address.sin_port = htons(proxy_port); // listening port
+    //not using proxy_port use listener _port directly
+    proxy_address.sin_port = htons(listener_port); // listening port
 
     // bind the socket to the address and port number specified in
     if (bind(*server_fd, (struct sockaddr *)&proxy_address,
@@ -150,7 +145,7 @@ void serve_forever(int *server_fd) {
         exit(errno);
     }
 
-    printf("Listening on port %d...\n", proxy_port);
+    printf("Listening on port %d...\n", listener_port);
 
     struct sockaddr_in client_address;
     size_t client_address_length = sizeof(client_address);
@@ -168,15 +163,111 @@ void serve_forever(int *server_fd) {
                inet_ntoa(client_address.sin_addr),
                client_address.sin_port);
 
-        serve_request(client_fd);
+        // get the priortity
+        struct parsed_http_request *request=parse_client_request(client_fd);
 
-        // close the connection to the client
-        shutdown(client_fd, SHUT_WR);
-        close(client_fd);
+        if (strcmp(request->path, "/GetJob") == 0) {
+            //check if is get job if not use nonblocking
+            struct item *item = get_work_nonblocking();
+
+            if (!item) {
+                send_error_response(client_fd, QUEUE_EMPTY, "Empty queue");
+            } else {
+                char *buf = malloc(strlen(item->path) + 2);
+                sprintf(buf, "%s\n", item->path);
+
+                http_start_response(client_fd, OK);
+                http_send_header(client_fd, "Content-Type", "text/html");
+                http_end_headers(client_fd);
+                http_send_string(client_fd, buf);
+            }
+
+            shutdown(client_fd, SHUT_WR);
+            close(client_fd);
+        } else {
+            int priority;
+            
+            if (sscanf(request->path, "/%d/", &priority) != 1) {
+                send_error_response(client_fd, BAD_REQUEST, "fail to extract priority");
+                shutdown(client_fd, SHUT_WR);
+                close(client_fd);
+            }
+
+            // if get priority successful go add_work
+            if (add_work(client_fd, priority, req->path, req->delay) < 0) {
+                send_error_response(client_fd, QUEUE_FULL, "Queue is full");
+                shutdown(client_fd, SHUT_WR);
+                close(client_fd);
+            }
+        }
+    }
+}
+//get worker started call get_work
+void start_worker() {
+    while(1) {
+        struct item *job = get_work();
+
+        sleep(job->delay);
+
+        serve_request(job->client_fd);
+
+        // shutdown the connection to the client
+        shutdown(job->client_fd, SHUT_WR);
+        close(job->client_fd);
+
+        free(job);
+    }
+}
+
+int *server_fds;
+
+/*
+ * opens a TCP stream socket on all interfaces with port number PORTNO. Saves
+ * the fd number of the server socket in *socket_number. For each accepted
+ * connection, calls request_handler with the accepted fd number.
+ */
+void serve_forever(int *server_fds) {
+    // make threads
+    pthread_t *listeners = (pthread_t *)malloc(num_listener * sizeof(pthread_t));
+    if (!listeners) {
+        printf("Failed to allocate memory\n");
+        exit(1);
     }
 
-    shutdown(*server_fd, SHUT_RDWR);
-    close(*server_fd);
+    pthread_t *workers = (pthread_t *)malloc(num_workers * sizeof(pthread_t));
+    if (!workers) {
+        printf("Failed to allocate memory\n");
+        exit(1);
+    }
+
+    // start listnerthreads
+    for (int i = 0; i < num_listener; i++) {
+        listener_info *d = malloc(sizeof(listener_info));
+        d->listener_port = listener_ports[i];
+        d->server_fd = &server_fds[i];
+        pthread_create(&listeners[i], 0, (void*)start_listener, d);
+    }
+    //start worker thread
+    for (int i = 0; i < num_workers; i++) {
+        pthread_create(&workers[i], 0, (void*)start_worker, NULL);
+    }
+
+    // join listener threads
+    for (int i = 0; i < num_listener; i++) {
+        pthread_join(listeners[i], NULL);
+    }
+    //join worker thread
+    for (int i = 0; i < num_workers; i++) {
+        pthread_join(workers[i], NULL);
+    }
+    // shutdown the connection to the client
+    for (int i = 0; i < num_listener; i++) {
+        shutdown(server_fds[i], SHUT_RDWR);
+        close(server_fds[i]);
+    }
+
+    free(listeners);
+    free(workers);
 }
 
 /*
@@ -210,9 +301,10 @@ void print_settings() {
 void signal_callback_handler(int signum) {
     printf("Caught signal %d: %s\n", signum, strsignal(signum));
     for (int i = 0; i < num_listener; i++) {
-        if (close(server_fd) < 0) perror("Failed to close server_fd (ignoring)\n");
+        if (close(server_fds[i]) < 0) perror("Failed to close server_fd (ignoring)\n");
     }
     free(listener_ports);
+    destroy_queue();
     exit(0);
 }
 
@@ -254,7 +346,12 @@ int main(int argc, char **argv) {
     }
     print_settings();
 
-    serve_forever(&server_fd);
+    create_queue(max_queue_size);
+
+    server_fds = malloc(sizeof(int) * num_listener);
+    serve_forever(server_fds);
+    
+    free(server_fds);
 
     return EXIT_SUCCESS;
 }

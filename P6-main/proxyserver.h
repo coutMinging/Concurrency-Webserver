@@ -1,3 +1,4 @@
+
 #ifndef PROXYSERVER_H
 #define PROXYSERVER_H
 
@@ -11,6 +12,7 @@ typedef enum scode {
 } status_code_t;
 
 #define GETJOBCMD "/GetJob"
+#define RESPONSE_BUFSIZE 10000
 
 /*
  * A simple HTTP library.
@@ -39,6 +41,11 @@ struct http_request {
     char *method;
     char *path;
     char *delay;
+};
+
+struct parsed_http_request {
+    char *path;
+    int delay;
 };
 
 /*
@@ -174,16 +181,15 @@ char *http_get_response_message(int status_code) {
     }
 }
 
-void parse_client_request(int fd) {
-    char *read_buffer = malloc(LIBHTTP_REQUEST_MAX_SIZE + 1);
+struct parsed_http_request *parse_client_request(int fd) {
+    char *read_buffer = malloc(RESPONSE_BUFSIZE);
     if (!read_buffer) http_fatal_error("Malloc failed");
 
-    int bytes_read = read(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE);
+    int bytes_read = recv(fd, read_buffer, RESPONSE_BUFSIZE - 1, MSG_PEEK);
     read_buffer[bytes_read] = '\0'; /* Always null-terminate. */
     printf("read buffer %s\n\n", read_buffer);
 
     int delay = -1;
-    int priority = -1;
     char *path = NULL;
 
     int is_first = 1;
@@ -203,12 +209,7 @@ void parse_client_request(int fd) {
             if (strcmp(GETJOBCMD, path) == 0) {
                 break;
             } else {
-                // get priority
-                s1 = strstr(path, "/");
-                s2 = strstr(s1 + 1, "/");
-                size = s2 - s1 - 1;
-                char *p = strndup(s1 + 1, size);
-                priority = atoi(p);
+                // skip priority
             }
         } else {
             char *value = strstr(token, ":");
@@ -222,15 +223,17 @@ void parse_client_request(int fd) {
         token = strtok(NULL, "\r\n");
     }
 
-    printf("\n\tParsed HTTP request:\n");
-    printf("\tPath: '%s'\n", path);
-    printf("\tPriority: '%d'\n", priority);
-    printf("\tDelay: '%d'\n\n", delay);
+    if (delay < 0) delay = 0;
+
+    struct parsed_http_request *req = malloc(sizeof(struct parsed_http_request));
+    req->path = path;
+    req->delay = delay;
 
     free(read_buffer);
-    return;
+    return req;
 }
 
 
 
 #endif
+
