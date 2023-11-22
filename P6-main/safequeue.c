@@ -12,6 +12,11 @@ pthread_cond_t cond;
 void create_queue(int full_size) {
     max_size=full_size;
     priority_queue = malloc(full_size * sizeof(safequeueItem_t*));
+    if(queue == NULL)
+    {
+        perror("Unable to malloc\n");
+        exit(1);
+    }
     
     pthread_cond_init(&cond, NULL);
     pthread_mutex_init(&mutex, NULL);
@@ -34,22 +39,6 @@ void dequeue() {
      pthread_mutex_destroy(&mutex);
      pthread_cond_destroy(&cond);
  }
-
- //get the index of the highest priority item in the priority queue(helpper func)
-int get_highest_priority() {
-    int highest_priority= -1;
-    int index = -1;
-
-    for (int i = 0; i < size; i++) {
-        if (priority_queue[i]->priority > highest_priority) {
-            highest_priority= priority_queue[i]->priority;
-            index = i;
-        }
-    }
-
-    return index;
-}
-
 
 int add_work(int priority, char *path, int delay, int client_fd){
     safequeueItem_t *new_item = malloc(sizeof(safequeueItem_t*));
@@ -83,14 +72,28 @@ safequeueItem_t *get_work() {
         pthread_cond_wait(&cond, &mutex); // Wait for work
     }
 
-    int rem_index = get_highest_priority();
+    int Highest_priority = -1;
+    int remove_index = -1;
+    
+
+    for (int i = 0; i < size; i++) {
+        if(priority_queue[i]->priority > Highest_priority){
+            Highest_priority = priority_queue[i]->priority;
+            remove_index = i;
+
+        }
+        
+    }
     safequeueItem_t *item = priority_queue[rem_index];
 
-    for (int i = rem_index; i < size - 1; i++) {
-        priority_queue[i] = priority_queue[i + 1];
-    }
-
     size--;
+    //remove item
+    for(int i = remove_index; i<size; i++)
+        {
+            priority_queue[i] = priority_queue[i+1];
+
+        }
+    
 
     pthread_mutex_unlock(&mutex);
 
@@ -101,23 +104,38 @@ safequeueItem_t *get_work() {
 safequeueItem_t *get_work_nonblocking() {
     pthread_mutex_lock(&mutex);
 
-    //if no element just return will not wait since non blocking
-    if (size <= 0) {
+    while (size <= 0) {
         pthread_mutex_unlock(&mutex);
-        return (safequeueItem_t*)0;
+        perror("queue is empty\n");
+        return (safequeueItem_t*) 0;
     }
 
-    int rem_index = get_highest_priority();
+    int Highest_priority = -1;
+    int remove_index = -1;
+    
 
+    for (int i = 0; i < size; i++) {
+        if(priority_queue[i]->priority > Highest_priority){
+            Highest_priority = priority_queue[i]->priority;
+            remove_index = i;
+
+        }
+        
+    }
     safequeueItem_t *item = priority_queue[rem_index];
 
-    for (int i = rem_index; i < size - 1; i++) {
-        priority_queue[i] = priority_queue[i + 1];
-    }
     size--;
+    //remove item
+    for(int i = remove_index; i<size; i++)
+        {
+            priority_queue[i] = priority_queue[i+1];
+
+        }
+    
 
     pthread_mutex_unlock(&mutex);
 
+    //return the removed item
     return item;
 }
 
