@@ -98,12 +98,6 @@ void serve_request(int client_fd) {
     free(buffer);
 }
 
-// struct to store listener port
-typedef struct {
-    int *server_fd;
-    int listener_port; //store listener_ports later
-} listener_info;
-
 // start the listener thread helper func
 void start_listener(listener_info *d) {
     int *server_fd=d->server_fd;
