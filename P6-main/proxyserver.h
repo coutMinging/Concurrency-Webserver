@@ -48,6 +48,12 @@ typedef parsed_http_request_t {
     int delay;
 } parsed_http_request_t;
 
+// struct to store listener port
+typedef struct {
+    int *server_fd;
+    int listener_port; //store listener_ports later
+} listener_info;
+
 /*
  * Functions for sending an HTTP response.
  */
