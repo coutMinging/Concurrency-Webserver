@@ -165,7 +165,7 @@ void start_listener(listener_info *d) {
                client_address.sin_port);
 
         // get the priortity
-        struct parsed_http_request *request=parse_client_request(client_fd);
+        parsed_http_request_t *request=parse_client_request(client_fd);
 
         if (strcmp(request->path, "/GetJob") == 0) {
             //check if is get job if not use nonblocking
@@ -173,6 +173,8 @@ void start_listener(listener_info *d) {
 
             if (!item) {
                 send_error_response(client_fd, QUEUE_EMPTY, "Empty queue");
+                shutdown(client_fd, SHUT_WR);
+                close(client_fd);
             } else {
                 char *buf = malloc(strlen(item->path) + 2);
                 sprintf(buf, "%s\n", item->path);
@@ -181,10 +183,9 @@ void start_listener(listener_info *d) {
                 http_send_header(client_fd, "Content-Type", "text/html");
                 http_end_headers(client_fd);
                 http_send_string(client_fd, buf);
+                shutdown(client_fd, SHUT_WR);
+                close(client_fd);
             }
-
-            shutdown(client_fd, SHUT_WR);
-            close(client_fd);
         } else {
             int priority;
             
@@ -221,12 +222,23 @@ void start_worker() {
 }
 
 int *server_fds;
+//helper func
+void start_listnerthreads(int *server_fds, pthread_t *listeners){
+// start listnerthreads
+    for (int i = 0; i < num_listener; i++) {
+        listener_info *d = malloc(sizeof(listener_info));
+        d->listener_port = listener_ports[i];
+        d->server_fd = &server_fds[i];
+        pthread_create(&listeners[i], 0, (void*)start_listener, d);
+    }
+}
 
 /*
  * opens a TCP stream socket on all interfaces with port number PORTNO. Saves
  * the fd number of the server socket in *socket_number. For each accepted
  * connection, calls request_handler with the accepted fd number.
  */
+
 void serve_forever(int *server_fds) {
     // make threads
     pthread_t *listeners = (pthread_t *)malloc(num_listener * sizeof(pthread_t));
@@ -241,13 +253,8 @@ void serve_forever(int *server_fds) {
         exit(1);
     }
 
-    // start listnerthreads
-    for (int i = 0; i < num_listener; i++) {
-        listener_info *d = malloc(sizeof(listener_info));
-        d->listener_port = listener_ports[i];
-        d->server_fd = &server_fds[i];
-        pthread_create(&listeners[i], 0, (void*)start_listener, d);
-    }
+    start_listenerthreads(server_fds,listeners);
+    
     //start worker thread
     for (int i = 0; i < num_workers; i++) {
         pthread_create(&workers[i], 0, (void*)start_worker, NULL);
