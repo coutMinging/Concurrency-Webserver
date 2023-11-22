@@ -151,6 +151,7 @@ void start_listener(listener_info *d) {
     size_t client_address_length = sizeof(client_address);
     int client_fd;
     while (1) {
+        safequeueItem_t *item;
         client_fd = accept(*server_fd,
                            (struct sockaddr *)&client_address,
                            (socklen_t *)&client_address_length);
@@ -168,7 +169,7 @@ void start_listener(listener_info *d) {
 
         if (strcmp(request->path, "/GetJob") == 0) {
             //check if is get job if not use nonblocking
-            safequeueItem_t *item = get_work_nonblocking();
+            item = get_work_nonblocking();
 
             if (!item) {
                 send_error_response(client_fd, QUEUE_EMPTY, "Empty queue");
