@@ -43,7 +43,7 @@ struct http_request {
     char *delay;
 };
 
-typedef struct parsed_http_request {
+typedef parsed_http_request_t {
     char *path;
     int delay;
 } parsed_http_request_t;
@@ -181,7 +181,7 @@ char *http_get_response_message(int status_code) {
     }
 }
 
-struct parsed_http_request *parse_client_request(int fd) {
+parsed_http_request_t *parse_client_request(int fd) {
     char *read_buffer = malloc(RESPONSE_BUFSIZE);
     if (!read_buffer) http_fatal_error("Malloc failed");
 
@@ -223,7 +223,7 @@ struct parsed_http_request *parse_client_request(int fd) {
 
     if (delay < 0) delay = 0;
 
-    struct parsed_http_request *req = malloc(sizeof(struct parsed_http_request));
+    parsed_http_request_t *req = malloc(sizeof(parsed_http_request_t));
     req->path = path;
     req->delay = delay;
 
