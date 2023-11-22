@@ -43,10 +43,10 @@ struct http_request {
     char *delay;
 };
 
-struct parsed_http_request {
+typedef struct parsed_http_request {
     char *path;
     int delay;
-};
+} parsed_http_request_t;
 
 /*
  * Functions for sending an HTTP response.
